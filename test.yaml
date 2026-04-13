@@ -1,0 +1,9 @@
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^0.13.3
+  intl: ">=0.17.0 <0.18.0"
+  path: 1.8.0
+  provider:
+    version: ^6.0.0
+  shared_preferences:

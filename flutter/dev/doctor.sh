@@ -109,68 +109,89 @@ ver_status() {
 # ─── Section: Flutter / FVM ───────────────────────────────────────────────────
 
 check_flutter_sdk() {
-  # Detect FVM
-  local fvm_active=false
-  local fvm_ver=""
+  # ── Collect FVM info ───────────────────────────────────────────────────────
+  local fvm_active=false fvm_ver=""
   if command -v fvm &>/dev/null; then
     fvm_ver=$(fvm --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
     fvm_active=true
   fi
-  if [ -f "$PROJECT_ROOT/.fvm/fvm_config.json" ]; then
-    local fvm_pinned
-    fvm_pinned=$(grep -oE '"flutterSdkVersion":\s*"[^"]+"' "$PROJECT_ROOT/.fvm/fvm_config.json" \
-      | grep -oE '"[0-9][^"]+"' | tr -d '"' 2>/dev/null || echo "")
-    if [ -n "$fvm_pinned" ]; then
-      add_row "FVM (pinned)" "$fvm_pinned" "-" "info" "project pin: $PROJECT_ROOT/.fvm/fvm_config.json"
+
+  local fvm_global="" fvm_local="" fvm_local_src=""
+  if $fvm_active; then
+    # Global: symlink ~/fvm/default hoặc ~/.fvm/default
+    for _d in "$HOME/fvm/default" "$HOME/.fvm/default"; do
+      if [ -L "$_d" ] && [ -e "$_d" ]; then
+        fvm_global=$(basename "$(readlink "$_d")" 2>/dev/null || echo "")
+        break
+      fi
+    done
+    [ -z "$fvm_global" ] && [ -f "$HOME/.fvmrc" ] && \
+      fvm_global=$(grep -oE '"flutter":\s*"[^"]+"' "$HOME/.fvmrc" \
+        | grep -oE '[0-9][^"]+' | tr -d '"' 2>/dev/null || echo "")
+
+    # Local/pin: .fvmrc (ưu tiên) hoặc .fvm/fvm_config.json
+    if [ -f "$PROJECT_ROOT/.fvmrc" ]; then
+      fvm_local=$(grep -oE '"flutter":\s*"[^"]+"' "$PROJECT_ROOT/.fvmrc" \
+        | grep -oE '[0-9][^"]+' | tr -d '"' 2>/dev/null || echo "")
+      [ -z "$fvm_local" ] && \
+        fvm_local=$(grep -v '^#\|^{' "$PROJECT_ROOT/.fvmrc" 2>/dev/null \
+          | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+      fvm_local_src=".fvmrc"
     fi
-  fi
-  if $fvm_active && [ -n "$fvm_ver" ]; then
-    add_row "fvm" "$fvm_ver" "-" "info" "$(command -v fvm)"
+    if [ -z "$fvm_local" ] && [ -f "$PROJECT_ROOT/.fvm/fvm_config.json" ]; then
+      fvm_local=$(grep -oE '"flutterSdkVersion":\s*"[^"]+"' "$PROJECT_ROOT/.fvm/fvm_config.json" \
+        | grep -oE '[0-9][^"]+' | tr -d '"' 2>/dev/null || echo "")
+      fvm_local_src=".fvm/fvm_config.json"
+    fi
+
+    # ── Row: fvm (gộp global + pin vào note) ──────────────────────────────
+    local fvm_note="global: ${fvm_global:-(not set)}  |  pin: ${fvm_local:-(not set)}"
+    [ -n "$fvm_local_src" ] && fvm_note="global: ${fvm_global:-(not set)}  |  pin: ${fvm_local} ($fvm_local_src)"
+    local fvm_row_status="info"
+    [ -z "$fvm_local" ] && fvm_row_status="warn"
+    add_row "fvm" "${fvm_ver:--}" "-" "$fvm_row_status" "$fvm_note"
   fi
 
-  # Flutter — FLUTTER_CMD luôn là path thực nhờ find_flutter()
+  # ── Row: Flutter SDK + Dart (gộp vào 1 row) ───────────────────────────────
   if [ -z "$FLUTTER_CMD" ]; then
     if $fvm_active; then
-      add_row "Flutter" "NOT FOUND" ">=$FLUTTER_MIN_VERSION" "fail" \
-        "FVM có nhưng chưa install version — chạy: fvm install <ver> && fvm global <ver>" \
+      add_row "Flutter SDK" "NOT FOUND" ">=$FLUTTER_MIN_VERSION" "fail" \
+        "FVM có nhưng chưa install — chạy: fvm install $FLUTTER_MIN_VERSION && fvm use $FLUTTER_MIN_VERSION" \
         "flutter-auto setup --project $PROJECT_ROOT --flutter"
     else
-      add_row "Flutter" "NOT FOUND" ">=$FLUTTER_MIN_VERSION" "fail" \
+      add_row "Flutter SDK" "NOT FOUND" ">=$FLUTTER_MIN_VERSION" "fail" \
         "Cài: flutter-auto setup --flutter" \
         "flutter-auto setup --project $PROJECT_ROOT --flutter"
     fi
     return
   fi
 
-  local flutter_out dart_line
+  local flutter_out
   flutter_out=$("$FLUTTER_CMD" --version 2>/dev/null)
-  local flutter_ver dart_ver channel engine_ver
+  local flutter_ver dart_ver channel
   flutter_ver=$(echo "$flutter_out" | grep -oE 'Flutter [0-9]+\.[0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
   dart_ver=$(echo "$flutter_out"    | grep -oE 'Dart [0-9]+\.[0-9]+\.[0-9]+'    | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
   channel=$(echo "$flutter_out"     | grep -oE 'channel [a-z]+' | awk '{print $2}' | head -1)
-  engine_ver=$(echo "$flutter_out"  | grep -oE 'Engine • revision [a-f0-9]+' | awk '{print $3}' | head -1)
 
   local f_status
   f_status=$(ver_status "$flutter_ver" "$FLUTTER_MIN_VERSION")
 
-  # Ghi chú rõ: dùng FVM hay direct
-  local via_label=""
+  # via label
+  local via=""
   if $fvm_active; then
     if [[ "$FLUTTER_CMD" == *"/.fvm/flutter_sdk/"* ]]; then
-      via_label="via FVM (local) • "
+      via="via FVM (local)"
     elif [[ "$FLUTTER_CMD" == *"/fvm/"* ]]; then
-      via_label="via FVM • "
+      via="via FVM (global)"
     fi
   fi
 
-  local f_note="${via_label}${FLUTTER_CMD}"
-  [ -n "$channel" ] && f_note="${via_label}channel: $channel  |  $FLUTTER_CMD"
-  add_row "Flutter" "${flutter_ver:--}" ">=$FLUTTER_MIN_VERSION" "$f_status" "$f_note"
+  # Note gộp: Dart + channel + via
+  local sdk_note="Dart ${dart_ver:--}"
+  [ -n "$channel" ] && sdk_note+="  •  channel: $channel"
+  [ -n "$via"     ] && sdk_note+="  •  $via"
 
-  # Dart (bundled với Flutter)
-  local d_status
-  d_status=$(ver_status "$dart_ver" "$DART_MIN_VERSION")
-  add_row "Dart SDK" "${dart_ver:--}" ">=$DART_MIN_VERSION" "$d_status" "bundled với Flutter"
+  add_row "Flutter SDK" "${flutter_ver:--}" ">=$FLUTTER_MIN_VERSION" "$f_status" "$sdk_note"
 }
 
 # ─── Section: pubspec.yaml ────────────────────────────────────────────────────
@@ -539,6 +560,8 @@ check_package_compat() {
   local pub_out pub_exit
   pub_out=$($FLUTTER_CMD pub get 2>&1) && pub_exit=0 || pub_exit=$?
 
+  local check_lock=true
+
   if [ "$pub_exit" -ne 0 ]; then
     # Lưu toàn bộ output để handle_pubget_blocking() hiển thị đầy đủ
     PUB_GET_FAILED=true
@@ -549,11 +572,11 @@ check_package_compat() {
     conflict_msg=$(echo "$pub_out" | grep -E "(Because|requires|version solving|incompatible)" \
       | head -3 | tr '\n' ' ')
     add_row "pub get" "FAILED (exit $pub_exit)" "-" "fail" \
-      "${conflict_msg:-Chi tiết xem sau bảng}"
-    return
+      "${conflict_msg:-Tiếp tục quét để tìm tổng hợp version cho tất cả packages}"
+    check_lock=false
+  else
+    add_row "pub get" "OK" "-" "ok" "Không có version conflict"
   fi
-
-  add_row "pub get" "OK" "-" "ok" "Không có version conflict"
 
   # ── Bước 2: Xác định version tối thiểu thực tế mà packages yêu cầu ──────
   # Fast mode: đọc pubspec.lock + query pub.dev API cho direct deps
@@ -567,13 +590,16 @@ check_package_compat() {
   local lock="$PROJECT_ROOT/pubspec.lock"
 
   if [ ! -f "$lock" ]; then
+    check_lock=false
+  fi
+
+  if ! $check_lock && [ "$PUB_GET_FAILED" != "true" ]; then
     add_row "pkg constraints" "pubspec.lock missing" "-" "warn" "Chạy: flutter pub get"
-    return
   fi
 
   # Lấy danh sách packages cần check
   local pkg_list=()
-  if $DEEP_CHECK; then
+  if $DEEP_CHECK && $check_lock; then
     # Tất cả hosted packages trong lock
     while IFS= read -r pkg; do
       pkg_list+=("$pkg")
@@ -582,7 +608,7 @@ check_package_compat() {
     # Chỉ direct dependencies từ pubspec.yaml
     while IFS= read -r pkg; do
       pkg_list+=("$pkg")
-    done < <(awk '/^dependencies:/,/^[a-z]/' "$yaml" \
+    done < <(awk '/^dependencies:/,/^dev_dependencies:/' "$yaml" \
       | grep -E "^  [a-z]" | awk '{print $1}' | tr -d ':' \
       | grep -vE "^(flutter|flutter_localizations)$")
   fi
@@ -592,21 +618,38 @@ check_package_compat() {
   local max_f_pkg="" max_d_pkg=""
 
   echo ""
-  info "Checking $total packages từ $($DEEP_CHECK && echo 'pubspec.lock' || echo 'pubspec.yaml (direct deps)')..."
+  info "Checking $total packages từ $($check_lock && echo 'pubspec.lock' || echo 'pubspec.yaml (direct deps)')..."
 
   for pkg in "${pkg_list[@]}"; do
     checked=$((checked + 1))
     printf "\r  ${GRAY}[%d/%d] %s%-30s${NC}" "$checked" "$total" "" "$pkg"
 
-    # Lấy resolved version từ pubspec.lock
-    local version
-    version=$(awk "/^  $pkg:/{f=1} f && /version:/{print \$2; exit}" "$lock" | tr -d '"')
-    [ -z "$version" ] && continue
+    local version=""
+    if $check_lock; then
+      # Lấy resolved version từ pubspec.lock
+      version=$(awk "/^  $pkg:/{f=1} f && /version:/{print \$2; exit}" "$lock" | tr -d '"')
+    else
+      # Lấy base version từ pubspec.yaml
+      version=$(grep -A1 "^  $pkg:" "$yaml" | grep -v "^  $pkg:" | grep "version:" | awk '{print $2}' | tr -d '"'\''\^>=~<')
+      if [ -z "$version" ]; then
+         version=$(grep "^  $pkg:" "$yaml" | awk '{print $2}' | tr -d '"'\''\^>=~<')
+      fi
+      version=$(echo "$version" | awk '{print $1}')
+    fi
 
-    # Query pub.dev
-    local result
-    result=$(curl -sf --max-time 8 \
-      "https://pub.dev/api/packages/$pkg/versions/$version" 2>/dev/null) || continue
+    local result=""
+    if [ -n "$version" ] && [ "$version" != "any" ]; then
+      result=$(curl -sf --max-time 8 "https://pub.dev/api/packages/$pkg/versions/$version" 2>/dev/null)
+    fi
+
+    if [ -z "$result" ]; then
+      # Fallback to latest nếu không có version (hoặc pub.dev không có version đó)
+      local pk_json=""
+      pk_json=$(curl -sf --max-time 8 "https://pub.dev/api/packages/$pkg" 2>/dev/null) || continue
+      version=$(echo "$pk_json" | python3 -c "import sys, json; print(json.load(sys.stdin).get('latest', {}).get('version', ''))" 2>/dev/null)
+      [ -z "$version" ] && continue
+      result=$(curl -sf --max-time 8 "https://pub.dev/api/packages/$pkg/versions/$version" 2>/dev/null) || continue
+    fi
 
     local f_min d_min
     f_min=$(echo "$result" | grep -o '"flutter":"[^"]*"' \
@@ -814,7 +857,7 @@ print_table() {
     # Section break dựa trên prefix tool name (flutter/dart/pubspec / java/android / ios / ci)
     local section=""
     case "$tool" in
-      Flutter|Dart*|fvm|FVM*|pubspec*) section="Flutter" ;;
+      "Flutter SDK"|Flutter|Dart*|fvm|FVM*|pubspec*) section="Flutter" ;;
       git|Homebrew|Python*|Node*) section="General" ;;
       Java*|Android*|adb|Gradle*) section="Android" ;;
       Xcode*|iOS*|Ruby|CocoaPods|Podfile*|ASC*) section="iOS" ;;
@@ -1040,8 +1083,30 @@ handle_conflict_blocking() {
     apply_fix "$DOCTOR_REQUIRED_FLUTTER" "$DOCTOR_REQUIRED_DART"
     local fix_result=$?
     if [ "$fix_result" -eq 0 ]; then
+      if confirm "Cài đặt Flutter SDK min version ($DOCTOR_REQUIRED_FLUTTER) và chạy pub get?"; then
+        echo ""
+        info "Đang cập nhật giới hạn version vào .fvmrc..."
+        python3 -c "import sys, json, os; f='$PROJECT_ROOT/.fvmrc'; d=json.load(open(f)) if os.path.exists(f) else {}; d['flutter']='$DOCTOR_REQUIRED_FLUTTER'; open(f, 'w').write(json.dumps(d, indent=2))" 2>/dev/null || echo '{"flutter": "'"$DOCTOR_REQUIRED_FLUTTER"'"}' > "$PROJECT_ROOT/.fvmrc"
+        
+        info "Đang cài đặt Flutter SDK..."
+        bash "$SCRIPT_DIR/setup.sh" --project "$PROJECT_ROOT" --flutter
+        echo ""
+        info "Đang chạy pub get..."
+        local pub_cmd="flutter"
+        if command -v fvm &>/dev/null; then
+          pub_cmd="fvm flutter"
+        fi
+        if (cd "$PROJECT_ROOT" && $pub_cmd pub get); then
+           PUB_GET_FAILED=false
+           ok "Đã cài đặt SDK và cập nhật thư viện thành công."
+        else
+           PUB_GET_FAILED=true
+           warn "pub get vẫn gặp lỗi sau khi đã cài SDK. Vui lòng kiểm tra logs."
+        fi
+      fi
+      
       echo ""
-      ok "pubspec.yaml đã cập nhật — chạy lại doctor để xác nhận:"
+      ok "Để kiểm tra trạng thái mới nhất, chạy lại doctor:"
       echo -e "  ${CYAN}flutter-auto doctor --project $PROJECT_ROOT${NC}"
       echo ""
     fi
@@ -1152,15 +1217,15 @@ main() {
   print_table
   print_summary
 
-  # ── pub get Gate (BLOCKING) ─────────────────────────────────────────────────
-  # pub get phải pass trước — nếu không không xác định được version chính xác.
-  # Exit code 2 ngay nếu thất bại, không cần xử lý conflict.
-  handle_pubget_blocking
-
   # ── Conflict (BLOCKING) — phải xử lý trước mọi thứ khác ────────────────────
   # Tách biệt hoàn toàn khỏi suggest_fixes.
-  # Exit code 2 nếu user từ chối fix.
+  # Exit code 2 nếu user từ chối fix. Phát sinh prompt sửa chữa và reinstall flutter
   handle_conflict_blocking
+
+  # ── pub get Gate (BLOCKING) ─────────────────────────────────────────────────
+  # pub get phải pass trước — nếu không không xác định được version chính xác.
+  # Exit code 2 ngay nếu thất bại sau khi đã qua bước Conflict.
+  handle_pubget_blocking
 
   # ── Optional fixes (chỉ sau khi đã clear conflict) ─────────────────────────
   suggest_fixes

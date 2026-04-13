@@ -3,6 +3,7 @@
 # Entry point — interactive menu, project-agnostic.
 #
 # Usage:
+#   flutter-auto --version                    # In phiên bản tool
 #   flutter-auto                              # Menu (dùng pwd làm project)
 #   flutter-auto /path/to/project            # Menu với project cụ thể
 #   flutter-auto --project /path/to/project  # Tương đương
@@ -32,6 +33,10 @@ _parse_top_args() {
   for arg in "$@"; do
     if $skip_next; then
       PROJECT_ARG="$arg"; skip_next=false; continue
+    fi
+    if [ "$arg" = "--version" ] || [ "$arg" = "-v" ]; then
+      echo "flutter-auto $TOOL_VERSION"
+      exit 0
     fi
     if [ "$arg" = "--project" ] || [ "$arg" = "-p" ]; then
       skip_next=true; continue

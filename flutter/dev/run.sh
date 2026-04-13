@@ -53,6 +53,24 @@ list_devices() {
   "$FLUTTER_CMD" devices 2>&1
 }
 
+# ─── Project Setup Hook ───────────────────────────────────────────────────────
+
+run_project_setup() {
+  local setup="$PROJECT_ROOT/scripts/setup.sh"
+  [ -f "$setup" ] || return 0
+
+  step "Project Setup — scripts/setup.sh"
+  chmod +x "$PROJECT_ROOT/scripts/"*.sh 2>/dev/null || true
+  info "Chạy $setup ..."
+  bash "$setup"
+  local exit_code=$?
+  if [ "$exit_code" -ne 0 ]; then
+    fail "scripts/setup.sh thất bại (exit $exit_code) — hủy run"
+  fi
+  ok "scripts/setup.sh hoàn tất"
+  echo ""
+}
+
 # ─── Flutter Run ──────────────────────────────────────────────────────────────
 
 do_run() {
@@ -60,6 +78,8 @@ do_run() {
   require_flutter
 
   cd "$PROJECT_ROOT"
+
+  run_project_setup
 
   # Kiểm tra dependencies
   if [ ! -d "$PROJECT_ROOT/.dart_tool" ]; then
@@ -77,26 +97,66 @@ do_run() {
     # Tìm Android emulator/device đang connected
     local android_device
     android_device=$("$FLUTTER_CMD" devices 2>/dev/null \
-      | grep -i "android\|emulator" | head -1 \
+      | grep -i "android\|emulator" | grep -v "web" | head -1 \
       | awk -F'•' '{print $2}' | tr -d ' ' || echo "")
+      
+    if [ -z "$android_device" ]; then
+      warn "Không tìm thấy Android device/emulator đang chạy"
+      info "Tìm kiếm emulator khả dụng..."
+      local emu_id
+      emu_id=$("$FLUTTER_CMD" emulators 2>/dev/null \
+        | grep -i "android" | head -1 \
+        | awk -F'•' '{print $1}' | tr -d ' ' || echo "")
+        
+      if [ -n "$emu_id" ]; then
+        info "Đang khởi động Android emulator: $emu_id"
+        "$FLUTTER_CMD" emulators --launch "$emu_id" >/dev/null 2>&1 &
+        info "Chờ emulator khởi động (10s)..."
+        sleep 10
+        
+        android_device=$("$FLUTTER_CMD" devices 2>/dev/null \
+          | grep -i "android\|emulator" | grep -v "web" | head -1 \
+          | awk -F'•' '{print $2}' | tr -d ' ' || echo "")
+      else
+        warn "Không có emulator Android nào được cài đặt. Hãy mở Android Studio để tạo."
+      fi
+    fi
+
     if [ -n "$android_device" ]; then
       run_args+=("--device-id" "$android_device")
       info "Device: $android_device"
     else
-      warn "Không tìm thấy Android device/emulator"
-      info "Chạy: flutter-auto run --devices  để xem danh sách"
+      warn "Vẫn không tìm thấy Android device. Để tự động chọn, lệnh chạy sẽ bỏ qua --device-id."
     fi
+
   elif [ "$PLATFORM" = "ios" ]; then
     local ios_device
     ios_device=$("$FLUTTER_CMD" devices 2>/dev/null \
-      | grep -i "ios\|iphone\|ipad\|simulator" | head -1 \
+      | grep -i "ios\|iphone\|ipad\|simulator" | grep -v "web\|macOS" | head -1 \
       | awk -F'•' '{print $2}' | tr -d ' ' || echo "")
+      
+    if [ -z "$ios_device" ]; then
+      warn "Không tìm thấy iOS Simulator đang chạy."
+      
+      if is_mac; then
+         info "Đang khởi động Simulator..."
+         open -a Simulator
+         info "Chờ Simulator boot (8s)..."
+         sleep 8
+         
+         ios_device=$("$FLUTTER_CMD" devices 2>/dev/null \
+           | grep -i "ios\|iphone\|ipad\|simulator" | grep -v "web\|macOS" | head -1 \
+           | awk -F'•' '{print $2}' | tr -d ' ' || echo "")
+      else
+         warn "Không thể khởi chạy iOS Simulator trên hệ điều hành này."
+      fi
+    fi
+
     if [ -n "$ios_device" ]; then
       run_args+=("--device-id" "$ios_device")
       info "Device: $ios_device"
     else
-      warn "Không tìm thấy iOS device/simulator"
-      info "Mở Simulator: open -a Simulator"
+      warn "Vẫn không tìm thấy iOS device. Lệnh chạy sẽ bỏ qua định danh device cụ thể."
     fi
   fi
 

@@ -6,6 +6,8 @@
 
 AUTOMATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+TOOL_VERSION="1.0.0"
+
 # ─── Colors & Logging ─────────────────────────────────────────────────────────
 
 RED='\033[0;31m'

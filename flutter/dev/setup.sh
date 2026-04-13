@@ -173,8 +173,15 @@ _fix_pubspec() {
 #   - Tôn trọng .fvm/fvm_config.json trong project (pinned version)
 #   - Không conflict khi làm việc nhiều project khác nhau
 
-# Trả về version được pin trong project (.fvm/fvm_config.json), hoặc rỗng
+# Trả về version được pin trong project (.fvmrc hoặc .fvm/fvm_config.json)
 _fvm_pinned_version() {
+  local rc_file="$PROJECT_ROOT/.fvmrc"
+  if [ -f "$rc_file" ]; then
+    grep -oE '"flutter":\s*"[^"]+"' "$rc_file" \
+      | grep -oE '"[0-9][^"]+"' | tr -d '"' 2>/dev/null || echo ""
+    return
+  fi
+
   local config="$PROJECT_ROOT/.fvm/fvm_config.json"
   if [ -f "$config" ]; then
     grep -oE '"flutterSdkVersion":\s*"[^"]+"' "$config" \
@@ -333,26 +340,29 @@ setup_flutter() {
     if [ -n "$active_ver" ] && version_gte "$active_ver" "$FLUTTER_MIN_VERSION"; then
       ok "Flutter $active_ver đang active via FVM — đủ yêu cầu"
 
-      # Nếu project có pin khác → cần switch
       if [ -n "$pinned_ver" ] && [ "$active_ver" != "$pinned_ver" ]; then
+        # Project có pin khác → switch sang pinned version
         warn "Active $active_ver ≠ pinned $pinned_ver — cần switch"
         _fvm_install_and_use "$pinned_ver" "local"
+      elif [ -z "$pinned_ver" ]; then
+        # Chưa pin cho project → pin FLUTTER_MIN_VERSION vào project
+        info "Chưa có FVM pin cho project — pin Flutter $FLUTTER_MIN_VERSION vào project..."
+        _fvm_install_and_use "$FLUTTER_MIN_VERSION" "local"
       else
-        # Re-resolve binary path sau khi FVM đã active
+        # Đã pin đúng version → re-resolve binary path
         FLUTTER_CMD="$(find_flutter 2>/dev/null || echo '')"
         export FLUTTER_CMD
       fi
     else
       # Cần cài target version
       if $already_installed; then
-        info "Flutter $target_ver đã có trong FVM — set active..."
+        info "Flutter $target_ver đã có trong FVM — set active cho project..."
       else
         info "Cài Flutter $target_ver qua FVM..."
       fi
 
-      local scope="global"
-      [ -n "$pinned_ver" ] && scope="local"
-      _fvm_install_and_use "$target_ver" "$scope" || _install_flutter_homebrew
+      # Luôn pin vào project (local) thay vì global
+      _fvm_install_and_use "$target_ver" "local" || _install_flutter_homebrew
     fi
 
     # Verify Dart
