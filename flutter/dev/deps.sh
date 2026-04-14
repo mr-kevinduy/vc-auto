@@ -144,7 +144,7 @@ do_clean() {
 
   if is_mac && [ -f "ios/Podfile" ]; then
     info "pod install..."
-    cd ios && pod install --repo-update 2>&1 | tail -5 && cd ..
+    cd ios && pod install --repo-update 2>&1 | tail -5 && cd "$PROJECT_ROOT"
   fi
 
   ok "Clean & reinstall hoàn tất"

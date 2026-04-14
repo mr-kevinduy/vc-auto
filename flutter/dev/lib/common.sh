@@ -5,6 +5,7 @@
 # ─── Script Location ──────────────────────────────────────────────────────────
 
 AUTOMATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$(dirname "${BASH_SOURCE[0]}")/platform.sh"
 
 TOOL_VERSION="1.0.0"
 
@@ -176,24 +177,15 @@ find_flutter() {
     fi
 
     # 2b. FVM global symlink — fvm global X tạo symlink này
-    local fvm_home="${FVM_HOME:-}"
-    for fvm_default in \
-      "${fvm_home:+$fvm_home/default/bin/flutter}" \
-      "$HOME/.fvm/default/bin/flutter" \
-      "$HOME/fvm/default/bin/flutter"; do
-      [ -z "$fvm_default" ] && continue
+    while IFS= read -r fvm_default; do
       if [ -x "$fvm_default" ]; then
         echo "$fvm_default"
         return 0
       fi
-    done
+    done < <(fvm_global_candidates)
 
     # 2c. Scan FVM versions dir — lấy version mới nhất đã cài
-    for fvm_versions in \
-      "${fvm_home:+$fvm_home/versions}" \
-      "$HOME/fvm/versions" \
-      "$HOME/.fvm/versions"; do
-      [ -z "$fvm_versions" ] && continue
+    while IFS= read -r fvm_versions; do
       if [ -d "$fvm_versions" ]; then
         local latest
         latest=$(ls -d "$fvm_versions"/*/bin/flutter 2>/dev/null \
@@ -203,7 +195,7 @@ find_flutter() {
           return 0
         fi
       fi
-    done
+    done < <(fvm_versions_dirs)
     # FVM có nhưng chưa install version nào
     return 1
   fi
@@ -216,16 +208,12 @@ find_flutter() {
     return 0
   fi
 
-  for c in \
-    "/opt/homebrew/share/flutter/bin/flutter" \
-    "/opt/homebrew/bin/flutter" \
-    "$HOME/development/flutter/bin/flutter" \
-    "$HOME/flutter/bin/flutter"; do
+  while IFS= read -r c; do
     if [ -x "$c" ]; then
       echo "$c"
       return 0
     fi
-  done
+  done < <(flutter_fallback_paths)
 
   return 1
 }
@@ -295,7 +283,4 @@ confirm() {
 }
 
 # ─── OS / Environment Detection ───────────────────────────────────────────────
-
-is_mac()   { [[ "$OSTYPE" == "darwin"* ]]; }
-is_linux() { [[ "$OSTYPE" == "linux"*  ]]; }
-is_ci()    { [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ] || [ -n "${BITRISE_IO:-}" ]; }
+# Định nghĩa trong lib/platform.sh — is_mac, is_linux, is_windows, is_unix, is_ci

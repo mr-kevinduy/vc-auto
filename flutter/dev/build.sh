@@ -216,9 +216,7 @@ build_android() {
 build_ios() {
   step "Building iOS ($BUILD_MODE | $ENV)"
 
-  if ! is_mac; then
-    fail "iOS build chỉ chạy được trên macOS"
-  fi
+  require_macos "iOS build" || return 1
 
   if ! command -v xcodebuild &>/dev/null; then
     fail "Xcode chưa cài — cài từ App Store"

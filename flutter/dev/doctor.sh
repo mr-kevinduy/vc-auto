@@ -245,18 +245,19 @@ check_general() {
     git_ver=$(git --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
     add_row "git" "$git_ver" "-" "ok" "$(command -v git)"
   else
-    add_row "git" "NOT FOUND" "-" "fail" "Cài: brew install git"
+    add_row "git" "NOT FOUND" "-" "fail" "Cài git: https://git-scm.com"
   fi
 
-  # Homebrew (macOS)
-  if is_mac; then
-    if command -v brew &>/dev/null; then
-      local brew_ver
-      brew_ver=$(brew --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-      add_row "Homebrew" "$brew_ver" "-" "ok" "$(command -v brew)"
-    else
-      add_row "Homebrew" "NOT FOUND" "-" "warn" "Cài: https://brew.sh"
-    fi
+  # Package manager (theo OS)
+  local pkg_mgr
+  pkg_mgr=$(detect_pkg_manager)
+  if [ "$pkg_mgr" != "none" ]; then
+    local pkg_ver
+    pkg_ver=$($pkg_mgr --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    add_row "$pkg_mgr" "${pkg_ver:--}" "-" "ok" "$(command -v "$pkg_mgr")"
+  else
+    if is_mac;     then add_row "Homebrew" "NOT FOUND" "-" "warn" "Cài: https://brew.sh"; fi
+    if is_windows; then add_row "pkg manager" "NOT FOUND" "-" "warn" "Cài winget, choco, hoặc scoop"; fi
   fi
 
   # Python3
@@ -274,7 +275,7 @@ check_general() {
     node_ver=$(node --version 2>/dev/null | tr -d 'v')
     add_row "Node.js" "$node_ver" "-" "ok" "$(command -v node)"
   else
-    add_row "Node.js" "NOT FOUND" "-" "warn" "Cài: brew install node  (cần cho Firebase CLI)"
+    add_row "Node.js" "NOT FOUND" "-" "warn" "Cần cho Firebase CLI"
   fi
 }
 
@@ -381,10 +382,7 @@ check_android() {
 # ─── Section: iOS ─────────────────────────────────────────────────────────────
 
 check_ios() {
-  if ! is_mac; then
-    add_row "iOS tools" "-" "-" "skip" "Chỉ kiểm tra được trên macOS"
-    return
-  fi
+  require_macos "iOS tools" || { add_row "iOS tools" "-" "-" "skip" "macOS only"; return; }
 
   # Xcode
   if command -v xcodebuild &>/dev/null; then
@@ -813,16 +811,16 @@ apply_fix() {
   # Sửa flutter constraint
   if [ -n "$req_flutter" ] && [ "$req_flutter" != "0.0.0" ]; then
     if ! version_gte "${cur_flutter:-0.0.0}" "$req_flutter"; then
-      sed -i.tmp "s/flutter: '>=[0-9]*\.[0-9]*\.[0-9]*'/flutter: '>=$req_flutter'/" "$yaml"
-      sed -i.tmp "s/flutter: \">=[0-9]*\.[0-9]*\.[0-9]*\"/flutter: \">=$req_flutter\"/" "$yaml"
+      sed_inplace "s/flutter: '>=[0-9]*\.[0-9]*\.[0-9]*'/flutter: '>=$req_flutter'/" "$yaml"
+      sed_inplace "s/flutter: \">=[0-9]*\.[0-9]*\.[0-9]*\"/flutter: \">=$req_flutter\"/" "$yaml"
     fi
   fi
 
   # Sửa sdk constraint (Dart)
   if [ -n "$req_dart" ] && [ "$req_dart" != "0.0.0" ]; then
     if ! version_gte "${cur_dart:-0.0.0}" "$req_dart"; then
-      sed -i.tmp "s/sdk: '>=[0-9]*\.[0-9]*\.[0-9]* <4\.0\.0'/sdk: '>=$req_dart <4.0.0'/" "$yaml"
-      sed -i.tmp "s/sdk: \">=[0-9]*\.[0-9]*\.[0-9]* <4\.0\.0\"/sdk: \">=$req_dart <4.0.0\"/" "$yaml"
+      sed_inplace "s/sdk: '>=[0-9]*\.[0-9]*\.[0-9]* <4\.0\.0'/sdk: '>=$req_dart <4.0.0'/" "$yaml"
+      sed_inplace "s/sdk: \">=[0-9]*\.[0-9]*\.[0-9]* <4\.0\.0\"/sdk: \">=$req_dart <4.0.0\"/" "$yaml"
     fi
   fi
 

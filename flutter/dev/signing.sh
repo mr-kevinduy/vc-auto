@@ -50,7 +50,7 @@ setup_android_signing() {
   # CI: decode keystore từ secret
   if is_ci && [ -n "${ANDROID_KEYSTORE_BASE64:-}" ]; then
     info "Decode Android keystore từ CI secret..."
-    echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+    base64_decode "$ANDROID_KEYSTORE_BASE64" > "$keystore"
     ok "Keystore decoded: android/app/release.keystore"
 
     cat > "$key_props" << EOF
@@ -120,10 +120,7 @@ EOF
 setup_ios_signing() {
   step "iOS Signing"
 
-  if ! is_mac; then
-    skip "iOS signing (macOS only)"
-    return
-  fi
+  require_macos "iOS signing" || return 0
 
   local cert_count
   cert_count=$(security find-identity -v -p codesigning 2>/dev/null | grep -c "iPhone" || echo 0)

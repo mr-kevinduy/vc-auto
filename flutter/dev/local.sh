@@ -117,7 +117,7 @@ run_setup() {
     ok "Flutter $flutter_ver — OK"
   fi
 
-  # iOS: pod install nếu Podfile.lock chưa có
+  # iOS: pod install nếu Podfile.lock chưa có (macOS only)
   if is_mac && [ -f "$PROJECT_ROOT/ios/Podfile" ] \
      && [ ! -f "$PROJECT_ROOT/ios/Podfile.lock" ]; then
     info "Podfile.lock chưa có — chạy pod install..."

@@ -138,9 +138,8 @@ do_run() {
     if [ -z "$ios_device" ]; then
       warn "Không tìm thấy iOS Simulator đang chạy."
       
-      if is_mac; then
+      if open_simulator; then
          info "Đang khởi động Simulator..."
-         open -a Simulator
          info "Chờ Simulator boot (8s)..."
          sleep 8
          

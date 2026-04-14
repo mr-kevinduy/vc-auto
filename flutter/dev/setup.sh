@@ -149,16 +149,14 @@ _fix_pubspec() {
   cp "$yaml" "$yaml.bak"
 
   if [ -n "$req_flutter" ] && [ "$req_flutter" != "0.0.0" ]; then
-    sed -i.tmp "s/flutter: '>=[0-9]*\.[0-9]*\.[0-9]*'/flutter: '>=$req_flutter'/" "$yaml"
-    sed -i.tmp "s/flutter: \">=[0-9]*\.[0-9]*\.[0-9]*\"/flutter: \">=$req_flutter\"/" "$yaml"
+    sed_inplace "s/flutter: '>=[0-9]*\.[0-9]*\.[0-9]*'/flutter: '>=$req_flutter'/" "$yaml"
+    sed_inplace "s/flutter: \">=[0-9]*\.[0-9]*\.[0-9]*\"/flutter: \">=$req_flutter\"/" "$yaml"
   fi
 
   if [ -n "$req_dart" ] && [ "$req_dart" != "0.0.0" ]; then
-    sed -i.tmp "s/sdk: '>=[0-9]*\.[0-9]*\.[0-9]* <4\.0\.0'/sdk: '>=$req_dart <4.0.0'/" "$yaml"
-    sed -i.tmp "s/sdk: \">=[0-9]*\.[0-9]*\.[0-9]* <4\.0\.0\"/sdk: \">=$req_dart <4.0.0\"/" "$yaml"
+    sed_inplace "s/sdk: '>=[0-9]*\.[0-9]*\.[0-9]* <4\.0\.0'/sdk: '>=$req_dart <4.0.0'/" "$yaml"
+    sed_inplace "s/sdk: \">=[0-9]*\.[0-9]*\.[0-9]* <4\.0\.0\"/sdk: \">=$req_dart <4.0.0\"/" "$yaml"
   fi
-
-  rm -f "$yaml.tmp"
   ok "pubspec.yaml đã cập nhật (backup: pubspec.yaml.bak)"
 }
 
@@ -198,47 +196,29 @@ _install_fvm() {
     return 0
   fi
 
-  info "Cài FVM (Flutter Version Manager)..."
-
-  if is_mac && command -v brew &>/dev/null; then
-    brew tap leoafarias/fvm 2>/dev/null || true
-    brew install fvm 2>&1 | tail -3
-  elif command -v dart &>/dev/null; then
-    dart pub global activate fvm
-  elif is_mac; then
-    # Homebrew chưa có → cài Homebrew trước
-    warn "Homebrew chưa có. Cài từ: https://brew.sh"
-    return 1
-  else
-    # Linux
-    curl -fsSL https://fvm.app/install.sh | bash 2>&1 | tail -5
-    export PATH="$HOME/.pub-cache/bin:$PATH"
-  fi
+  info "Cài FVM (Flutter Version Manager) via $(detect_pkg_manager)..."
+  install_fvm
 
   if command -v fvm &>/dev/null; then
     ok "fvm đã cài: $(command -v fvm)"
-    # Thêm FVM vào shell config
     _add_fvm_to_shell
     return 0
   else
-    warn "FVM cài không thành công — fallback sang Homebrew Flutter"
+    warn "FVM cài không thành công — fallback sang direct Flutter install"
     return 1
   fi
 }
 
 # Thêm FVM paths vào shell config
 _add_fvm_to_shell() {
-  local shell_rc="$HOME/.zshrc"
-  [ -f "$HOME/.bashrc" ] && [ ! -f "$HOME/.zshrc" ] && shell_rc="$HOME/.bashrc"
-
-  local fvm_path='$HOME/.pub-cache/bin'
-  local fvm_link='$HOME/fvm/default/bin'
+  local shell_rc
+  shell_rc=$(shell_config_file)
 
   if ! grep -q "fvm" "$shell_rc" 2>/dev/null; then
     {
       echo ""
       echo "# FVM — Flutter Version Manager"
-      echo "export PATH=\"$fvm_path:$fvm_link:\$PATH\""
+      echo 'export PATH="$HOME/.pub-cache/bin:$HOME/fvm/default/bin:$PATH"'
     } >> "$shell_rc"
     info "Đã thêm FVM vào $shell_rc — chạy: source $shell_rc"
   fi
@@ -280,22 +260,16 @@ _fvm_install_and_use() {
   fi
 }
 
-# Cài Flutter trực tiếp qua Homebrew (fallback)
-_install_flutter_homebrew() {
-  if ! is_mac; then
-    fail "Auto-install Flutter chỉ hỗ trợ macOS.\nXem: https://docs.flutter.dev/get-started/install"
+# Cài Flutter trực tiếp qua package manager (fallback khi không có FVM)
+_install_flutter_direct() {
+  info "Cài Flutter direct via $(detect_pkg_manager)..."
+  if ! install_flutter_direct; then
+    fail "Không thể tự động cài Flutter.\nXem: https://docs.flutter.dev/get-started/install"
   fi
-
-  if ! command -v brew &>/dev/null; then
-    fail "Homebrew chưa cài. Cài từ: https://brew.sh"
-  fi
-
-  info "Cài Flutter qua Homebrew..."
-  brew install --cask flutter 2>&1 | tail -5
 
   FLUTTER_CMD="$(find_flutter)"
   if [ -z "$FLUTTER_CMD" ]; then
-    fail "Cài Flutter thất bại"
+    fail "Cài Flutter thất bại — không tìm thấy binary sau khi cài"
   fi
   ok "Flutter đã cài: $FLUTTER_CMD"
 }
@@ -362,7 +336,7 @@ setup_flutter() {
       fi
 
       # Luôn pin vào project (local) thay vì global
-      _fvm_install_and_use "$target_ver" "local" || _install_flutter_homebrew
+      _fvm_install_and_use "$target_ver" "local" || _install_flutter_direct
     fi
 
     # Verify Dart
@@ -396,7 +370,7 @@ setup_flutter() {
       fi
     fi
 
-    _install_flutter_homebrew
+    _install_flutter_direct
   fi
 
   # ── Final verify ──
@@ -509,8 +483,8 @@ setup_android() {
 
   # Kiểm tra Java
   if ! command -v java &>/dev/null; then
-    info "Cài Java $JAVA_MIN_VERSION via Homebrew..."
-    brew install --cask temurin@${JAVA_MIN_VERSION} 2>&1 | tail -3
+    info "Cài Java $JAVA_MIN_VERSION via $(detect_pkg_manager)..."
+    install_java "$JAVA_MIN_VERSION"
     ok "Java $JAVA_MIN_VERSION đã cài"
   else
     local java_ver
@@ -522,23 +496,19 @@ setup_android() {
   local sdk_home="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
 
   if [ -z "$sdk_home" ]; then
-    # Thử tìm Android SDK mặc định
-    for candidate in \
-      "$HOME/Library/Android/sdk" \
-      "$HOME/Android/Sdk" \
-      "/usr/local/lib/android/sdk"; do
+    # Tìm theo OS-specific default paths
+    while IFS= read -r candidate; do
       if [ -d "$candidate" ]; then
         sdk_home="$candidate"
         break
       fi
-    done
+    done < <(android_sdk_candidates)
   fi
 
   if [ -z "$sdk_home" ]; then
     warn "Không tìm thấy Android SDK."
     info "Cài Android Studio hoặc cmdline-tools từ:"
     info "  https://developer.android.com/studio"
-    info "Sau đó set: export ANDROID_HOME=\$HOME/Library/Android/sdk"
     return
   fi
 
@@ -547,7 +517,8 @@ setup_android() {
   export ANDROID_SDK_ROOT="$sdk_home"
 
   # Thêm vào shell config nếu chưa có
-  local shell_rc="$HOME/.zshrc"
+  local shell_rc
+  shell_rc=$(shell_config_file)
   if ! grep -q "ANDROID_HOME" "$shell_rc" 2>/dev/null; then
     {
       echo ""
@@ -574,19 +545,12 @@ setup_android() {
 setup_ios() {
   step "3. iOS Environment"
 
-  if ! is_mac; then
-    skip "iOS setup (macOS only)"
-    return
-  fi
+  require_macos "iOS setup" || return 0
 
   # CocoaPods
   if ! command -v pod &>/dev/null; then
     info "Cài CocoaPods..."
-    if command -v brew &>/dev/null; then
-      brew install cocoapods
-    else
-      sudo gem install cocoapods
-    fi
+    install_cocoapods
     ok "CocoaPods đã cài: $(pod --version)"
   else
     ok "CocoaPods $(pod --version) đã có"

@@ -74,7 +74,7 @@ setup_play_credentials() {
 
   # Decode từ CI env var
   if [ -n "${GOOGLE_PLAY_KEY_JSON:-}" ]; then
-    echo "$GOOGLE_PLAY_KEY_JSON" | base64 --decode > "$key_file"
+    base64_decode "$GOOGLE_PLAY_KEY_JSON" > "$key_file"
     ok "Google Play key decoded"
     echo "$key_file"
     return 0
@@ -208,9 +208,7 @@ setup_appstore_credentials() {
 deploy_ios() {
   step "Deploy iOS → $( $TESTFLIGHT_ONLY && echo 'TestFlight' || echo 'App Store')"
 
-  if ! is_mac; then
-    fail "iOS deploy chỉ chạy được trên macOS"
-  fi
+  require_macos "iOS deploy" || return 1
 
   # Tìm IPA
   if [ -z "$IPA_PATH" ]; then
@@ -260,7 +258,7 @@ deploy_ios() {
     local api_key_args=""
     if [ -n "${APP_STORE_CONNECT_API_KEY:-}" ]; then
       local key_file="/tmp/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
-      echo "$APP_STORE_CONNECT_API_KEY" | base64 --decode > "$key_file"
+      base64_decode "$APP_STORE_CONNECT_API_KEY" > "$key_file"
       api_key_args="--apiKey ${APP_STORE_CONNECT_API_KEY_ID} --apiIssuer ${APP_STORE_CONNECT_API_ISSUER_ID}"
     else
       local p8_file
